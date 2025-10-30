@@ -4,6 +4,7 @@ import re
 import requests
 import csv
 import pandas as pd
+import time
 from io import StringIO
 from io import BytesIO
 from pdfminer.pdfinterp import PDFResourceManager, PDFPageInterpreter
@@ -25,7 +26,8 @@ header = [
     'Interviewer',
     'unused',
     'Notes',
-    'System Notes'
+    'System Notes',
+    'Max Residents'
 ]
 
 unused = [
@@ -45,7 +47,6 @@ beginning = [
           'Updated',
           'Page ',
           'Certified by: ',
-          'Maximum Num',
           'Allows Medica',
           'Registered Date'
 ]
@@ -142,20 +143,20 @@ def main():
 
     text = StringIO()
     rsrcmgr = PDFResourceManager()
-    device = TextConverter(rsrcmgr, text, laparams=LAParams(line_margin=7))
+    device = TextConverter(rsrcmgr, text, laparams=LAParams(line_margin=0.01))
     interpreter = PDFPageInterpreter(rsrcmgr, device)
     if not dataUpdate(online, oldPDF, interpreter):
-        return
+        print("no new data")
     
 
     data = pd.DataFrame(parsePDF(text.getvalue()), columns=header)
-    old_data = pd.DataFrame(parseCSV('output.csv'), columns=header)
-    new_data = pd.concat([old_data, data])
+    #old_data = pd.DataFrame(parseCSV('output.csv'), columns=header)
+    new_data = data#pd.concat([old_data, data])
 
     # update data!!
 
     new_data = new_data.T.reset_index().T
-    toCSV('output.csv', data.values)
+    toCSV(f'output-{time.time()}.csv', data.values)
 
     return
 
@@ -207,8 +208,7 @@ def toCSV(outfile, data_list):
 
 def parsePDF(text):
     every_line = re.split('\\0|\\n|\\r|\\x0c', text)
-    every_line = [x for x in every_line if x not in unused 
-                                        and not x.strip().isnumeric()
+    every_line = [x for x in every_line if x not in unused
                                         and not any(x.startswith(b) for b in beginning)]
     
     email = ''
@@ -217,6 +217,7 @@ def parsePDF(text):
     residence_name = ''
     orgName = ''
     location = ''
+    num_beds = ''
     county = every_line[0]
     final = list()
 
@@ -225,9 +226,11 @@ def parsePDF(text):
     for i in range(1, len(every_line) - 1):
         elt = every_line[i]
 
+        print(elt)
+
         if (isOrg(elt)):
             if (orgName): # not enough fulfillments to push everything
-                final.append([email, contact_name, phone, residence_name, orgName, '', location, county, '', '', '', '', '', ''])
+                final.append([email, contact_name, phone, residence_name, orgName, '', location, county, '', '', '', '', '', '', num_beds])
                 email = ''
                 contact_name = ''
                 phone = ''
@@ -245,6 +248,8 @@ def parsePDF(text):
             phone = elt
             if (isEmail(every_line[i + 1])):
                 email = every_line[i + 1]  # NOT GUARANTEED !
+        elif elt.strip().isnumeric():
+            num_beds = elt.strip()
         elif (isLocation(elt)):
             location = elt[:elt.find(',')].upper()
             first_occurence = every_line.index(location) # UNCHECKED
@@ -252,18 +257,21 @@ def parsePDF(text):
                 county = every_line[first_occurence - 1]
             elif (isCounty(location)):
                 county = location
+        
+
         if (isContact(elt)):
             contact_name = elt[elt.index(contact_string) + len(contact_string):]
         
 
         if (contact_name and phone and residence_name and orgName and location):
-            final.append([email, contact_name, phone, residence_name, orgName, '', location, county, '', '', '', '', '', ''])
+            final.append([email, contact_name, phone, residence_name, orgName, '', location, county, '', '', '', '', '', '', num_beds])
             email = ''
             contact_name = ''
             phone = ''
             residence_name = ''
             orgName = ''
             location = ''
+            num_beds = ''
     
     return final
 
